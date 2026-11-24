@@ -29,6 +29,13 @@
 #### 圖 1　自架系統架構與資料流
 
 ```mermaid
+---
+config:
+  flowchart:
+    nodeSpacing: 24
+    rankSpacing: 32
+    wrappingWidth: 200
+---
 flowchart TB
     subgraph ENTRY["使用者介面與部署入口"]
         Browser["瀏覽器中的 React 工作台<br/>TypeScript 編寫、Vite 建置"]
@@ -45,10 +52,10 @@ flowchart TB
         Publish["週期排程與平台轉接器<br/>選稿、派工、送出與結果更新"]
         Mail["郵件工作<br/>Nodemailer 寄出待審摘要與異常通知"]
         Media["媒體模組<br/>Sharp 處理圖片、圖卡與平台尺寸副本"]
+        PublicMedia["公開 HTTPS 媒體路由<br/>提供已公開的發佈用副本"]
         Analytics["社群分析<br/>發佈趨勢、帳號與貼文指標"]
         CLI["主機 Codex CLI<br/>Web Search、結構化產稿與選用生圖"]
-        API -->|匯入圖片、預覽、匯出| Media
-        API -->|讀取報表| Analytics
+        API --> Media & Analytics & PublicMedia
         Engine --> Gather & Draft & Publish & Mail
         Gather --> CLI
         Draft -->|使用主機訂閱時| CLI
@@ -74,18 +81,18 @@ flowchart TB
 
     Caddy -->|轉送工作台與 API 請求| API
     Desktop -->|本機 HTTP 127.0.0.1| API
-    API <-->|讀寫工作台資料與工作佇列| SQLite
-    Engine <-->|領取工作並保存進度及結果| SQLite
-    Analytics -->|讀取本機發佈紀錄| SQLite
-    Media -->|保存圖片資訊及可重編輯版面| SQLite
-    Media <-->|讀寫圖片檔案| Files
-    API -->|按路由提供公開媒體副本| Files
+    API <--> SQLite
+    Engine <-->|工作、進度及結果| SQLite
+    Analytics --> SQLite
+    Media -->|媒體資訊及版面配方| SQLite
+    Media <--> Files
+    PublicMedia --> Files
     CLI -->|讀取公開來源| Web
     Draft -->|選用文字 API| AIAPI
     Media -->|選用 Images API| AIAPI
     Publish -->|按平台提交發佈請求| Social
     Analytics -->|依平台授權讀取成效| Social
-    Social -.->|需要時透過 HTTPS 讀取圖片副本| Caddy
+    Social -.->|依圖片網址讀取公開副本| PublicMedia
     Mail -->|寄出郵件| SMTP
 ```
 
@@ -98,6 +105,13 @@ flowchart TB
 #### 圖 2　從素材匯入到稿件核准
 
 ```mermaid
+---
+config:
+  flowchart:
+    nodeSpacing: 26
+    rankSpacing: 34
+    wrappingWidth: 190
+---
 flowchart TB
     Manual["承辦人貼上原文、匯入文章網址與照片"]
     Subscription["主機按設定間隔掃描網站與 RSS"]
@@ -108,7 +122,7 @@ flowchart TB
     subgraph GENERAL["一般稿"]
         Rules{"自動選稿符合關鍵字、時效與篇數上限？"}
         Semantic{"有無啟用 AI 語意選稿？"}
-        Assess["評估相關性、可核對事實與活動期限"]
+        Assess{"評估結果達門檻？<br/>相關性、可核對事實與活動期限"}
         Skip["保留素材或選稿原因"]
         Copy["產生四版文案及圖卡標題與摘要"]
         CopyCheck{"結構與正文篇幅有效？"}
@@ -118,8 +132,8 @@ flowchart TB
         Rules -->|未通過| Skip
         Semantic -->|有| Assess
         Semantic -->|無| Copy
-        Assess -->|合格| Copy
-        Assess -->|未達門檻| Skip
+        Assess -->|是| Copy
+        Assess -->|否| Skip
         Copy --> CopyCheck
         CopyCheck -->|通過| Art
         CopyCheck -->|未通過| Revise
@@ -166,10 +180,17 @@ flowchart TB
 #### 圖 3　從排程選稿到四平台發佈與復原
 
 ```mermaid
+---
+config:
+  flowchart:
+    nodeSpacing: 24
+    rankSpacing: 32
+    wrappingWidth: 190
+---
 flowchart TB
     Tick["背景引擎輪詢<br/>依台北時區找出已到且尚未處理的時段"]
     Window{"還在允許的補送期限？"}
-    Missed["記錄時段已錯過"]
+    Missed["記錄時段已錯過並排入通知"]
     Bound{"有符合核准與時段條件的指定稿？"}
     Normal{"有仍有效的一般核准稿？"}
     Backup{"有仍有效的已核准備稿？"}
@@ -179,7 +200,7 @@ flowchart TB
     Guard{"送出前檢查<br/>核准雜湊、稿件版本、綁定、目的地、期限與平台格式"}
     Stop["停止該平台的舊工作或記錄失敗原因"]
     Prepare["準備所選平台的圖片與請求<br/>需要時製作公開 HTTPS 副本"]
-    Sending["確認版本與時段仍有效<br/>以短交易記錄即將送出，外部請求在交易外執行"]
+    Sending{"版本與時段仍有效？"}
 
     Tick --> Window
     Window -->|否| Missed
@@ -192,18 +213,20 @@ flowchart TB
     Backup -->|無| Skipped
     Pick --> Queue --> Guard
     Guard -->|檢查未通過| Stop
-    Guard -->|通過| Prepare --> Sending
-    Sending -->|版本或時段已變更| Stop
+    Guard -->|通過| Prepare
+    Sending -->|否| Stop
 
-    subgraph PLATFORMS["四平台各自執行並保存進度"]
-        FB["Facebook 粉專<br/>文字或單圖直送，多圖先建立附件"]
-        IG["Instagram<br/>建立圖片或輪播容器，等待就緒後發佈"]
-        TH["Threads<br/>建立文字、圖片或輪播容器後發佈"]
-        LINE["LINE 官方帳號<br/>好友群發或推播指定群組，使用固定重試鍵"]
+    subgraph PLATFORMS["依目標平台準備請求並保存進度"]
+        FB["Facebook 粉專<br/>組裝文字或單圖請求，多圖先建立附件"]
+        IG["Instagram<br/>建立圖片或輪播容器，等待就緒"]
+        TH["Threads<br/>建立文字、圖片或輪播容器，等待就緒"]
+        LINE["LINE 官方帳號<br/>組裝好友群發或指定群組推播，沿用固定重試鍵"]
     end
 
-    Sending -->|送到所選平台| PLATFORMS
-    PLATFORMS --> Result{"保存各平台結果及可取得的外部識別碼"}
+    Prepare --> FB & IG & TH & LINE
+    FB & IG & TH & LINE --> Sending
+    Sending -->|是| Call["以短交易記錄即將送出<br/>在交易外呼叫該平台最終發佈 API"]
+    Call --> Result{"各平台回傳的結果<br/>保存可取得的外部識別碼"}
     Result -->|平台確認發佈或接受請求| Sent["記錄已送出"]
     Result -->|確認失敗| Failed["記錄失敗原因並通知"]
     Result -->|送出後斷線或回應不確定| Unknown["記錄結果不明並通知承辦人"]
