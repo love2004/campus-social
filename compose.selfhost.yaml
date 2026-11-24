@@ -1,0 +1,61 @@
+name: campus-social
+services:
+  app:
+    build:
+      context: .
+      dockerfile: selfhost/Dockerfile
+      args:
+        CODEX_VERSION: ${CODEX_VERSION:-0.166.0}
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 4m
+    environment:
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      EMBEDDED_WORKER: "true"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
+      META_GRAPH_VERSION: ${META_GRAPH_VERSION:-}
+      FACEBOOK_PAGE_ID: ${FACEBOOK_PAGE_ID:-}
+      FACEBOOK_PAGE_TOKEN: ${FACEBOOK_PAGE_TOKEN:-}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+      INSTAGRAM_USER_ID: ${INSTAGRAM_USER_ID:-}
+      INSTAGRAM_INSIGHTS_TOKEN: ${INSTAGRAM_INSIGHTS_TOKEN:-}
+      THREADS_USER_ID: ${THREADS_USER_ID:-}
+      THREADS_TOKEN: ${THREADS_TOKEN:-}
+      LINE_CHANNEL_TOKEN: ${LINE_CHANNEL_TOKEN:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+    ports:
+      - "127.0.0.1:${HOST_PORT:-5180}:5180"
+    volumes:
+      - campus_data:/app/data
+      - campus_codex:/home/node/.codex
+      - campus_backups:/app/backups
+  caddy:
+    image: caddy:2-alpine
+    profiles: [public]
+    restart: unless-stopped
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./selfhost/Caddyfile:/etc/caddy/Caddyfile:ro
+      - campus_caddy_data:/data
+      - campus_caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+volumes:
+  campus_data:
+  campus_codex:
+  campus_backups:
+  campus_caddy_data:
+  campus_caddy_config:
